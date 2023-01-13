@@ -56,19 +56,17 @@
 #   make clean
 
 # Target MCU settings --------------------------------------------------
-# for STC15W101 mcu used in door sensor
-#MCU_PREQ := 11057000
-# for STC15W104 mcu
-MCU_FREQ := 10598000
+# for STC15W101 and STC15W104 mcu used in door sensor
+MCU_FREQ_KHZ := 24000
 STACK_SIZE := 16
 
 # limit code size to 1 KB to support '101 part
 # take care to account for 7 bytes of unique id
 # so for example 1024 byte part minus 7 bytes is limited to 1017 flash
 MEMORY_SIZES = \
-	--iram-size 128 \
+    --iram-size 128 \
     --xram-size 0 \
-	--stack-size $(STACK_SIZE) \
+    --stack-size $(STACK_SIZE) \
     --code-size 1017
 
 #

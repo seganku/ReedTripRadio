@@ -57,11 +57,12 @@ cd uni-STC/demos/
 # this repository
 git clone https://github.com/mightymos/ReedTripRadio.git
 cd ReedTripRadio/
+
+# build
 make
 
-# make file should be used to flash in the future
-# (port format specific to Windows, change for other systems)
-~/stcgal-patched/stcgal.py -p COM3 -b 19200 build/ReedTripRadio.ihx
+# flash over usb to uart (serial)
+make upload
 ```
 
 ### Receiver Hardware
