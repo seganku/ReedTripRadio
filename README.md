@@ -45,6 +45,7 @@ Boards contain a header that may be populated with pins labeled with G (ground),
 ```
 # install https://sdcc.sourceforge.net/ for your platform
 
+# switch to base of home directory
 cd ~/
 
 # flashing tool
@@ -63,6 +64,15 @@ make
 
 # flash over usb to uart (serial)
 make upload
+```
+
+### Flash premade hex (.ihx)
+```
+# manual flash (Windows)
+~/stcgal-patched/stcgal.py -a -p COM3 -t 24000 ReedTripRadio.ihx
+
+# manual flash (Linux)
+~/stcgal-patched/stcgal.py -a -p /dev/ttyUSB0 -t 24000 ReedTripRadio.ihx
 ```
 
 ### Receiver Hardware
