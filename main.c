@@ -103,6 +103,8 @@ static const unsigned char tamper_close = 0x08;
 // changed pulse lengths from microseconds to 10 microseconds units
 // because hardware abstraction layer provides delay10us() 
 // I avoid performing multiplies on processor by computing these as constants
+// "protocol 1" is the first protocol also supported by Portisch
+// (https://github.com/Portisch/RF-Bridge-EFM8BB1/blob/master/inc/RF_Protocols.h)
 const uint16_t gPulseHigh =   35;
 const uint16_t gPulseLow  = 1085;
 const uint16_t gZeroHigh  =   35;
