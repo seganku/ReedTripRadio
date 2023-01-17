@@ -7,16 +7,46 @@ STC15W101/104 are 8051 based processors + SYN115 radio transmitter.
  
 Instead of supporting software serial or full hardware abstraction layer (HAL),  
 it is decided to keep firmware under 1KB so it works on multiple processors/boards.  
-One possibility however is to use emulated EEPROM area for code space.
 
+One possibility however is to use emulated EEPROM area for code space.  
 Experiments with booting from other memory spaces have not worked so far:  
-https://github.com/mightymos/stc15bootisp/issues/1
+https://github.com/mightymos/stc15bootisp/issues/1  
 
 Finally, STC processors do not allow read/verify of written firmware.  
 Therefore an open source alternative is needed to confirm program behavior.  
 Also for this reason original firmware can not be reflashed once overwritten.  
 
 Boards contain a header that may be populated with pins labeled with G (ground), T (transmit), and R (receive) for flashing with USB to UART module.
+
+### Receiver Hardware
+Receiving radio packets requires a receiver.  
+We have chosen "protocol 1" from the rc-switch library.  
+You can use a generic 433 MHz receiver and controller using [rc-switch](https://github.com/sui77/rc-switch).  
+There is also an rc-switch fork that appears more recently updated [rc-switch by 1technophile] (https://github.com/1technophile/rc-switch).
+
+
+Another option is the Sonoff RF Bridge 433 MHz.  
+
+For Sonoff R2 V1.0 one of the two methods is required so that "protocol 1" is available [see Modifications section in link below].  
+https://github.com/xoseperez/espurna/wiki/Hardware-Itead-Sonoff-RF-Bridge
+
+Flashing Portisch is described here:  
+https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/#rf-firmware-upgrade
+
+
+
+Portisch is not supported on Sonoff R2 V2.2 hardware:  
+https://github.com/Portisch/RF-Bridge-EFM8BB1/issues/217
+
+However apparently there is a hardware modification for R2 V2.2 which bypasses rf chip so Tasmota directly decodes:  
+https://community.home-assistant.io/t/new-sonoff-rf-bridge-board-need-flashing-help/344326/17
+
+[ESPurna](https://github.com/xoseperez/espurna "ESPurna") is nice because it treats wireless sensors as "virtual" sensors.  
+Virtual sensors show up as permanent switch entities in Home Assistant.  
+Also ESPurna can learn/remember unique sensor codes.  
+
+
+[Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota") firmware can also be flashed.  
 
 ### Features
 
@@ -68,40 +98,15 @@ make upload
 
 ### Flash premade hex (.ihx)
 ```
-# manual flash (Windows)
-~/stcgal-patched/stcgal.py -a -p COM3 -t 24000 ReedTripRadio.ihx
-
-# manual flash (Linux)
-~/stcgal-patched/stcgal.py -a -p /dev/ttyUSB0 -t 24000 ReedTripRadio.ihx
+# manual flash (WINDOWS under MSYS2)
+# (LINUX: substitue port for example with "/dev/ttyUSB0")
+# (note: we set very low baud rates here to eliminate that source of flashing problems)
+~/stcgal-patched/stcgal.py -p COM3 -l 1200 -b 1200 -t 24000 ReedTripRadio.ihx
 ```
 
 ### Non free flasher
 [STC-ISP] (http://www.stcmcudata.com/)  
 v6.91J was available 1/16/2023  
-
-### Receiver Hardware
-Receiving radio packets requires a receiver.  
-We have chosen "protocol 1" from the rc-switch library.  
-You can use a generic 433 MHz receiver and controller using [rc-switch](https://github.com/sui77/rc-switch).  
-
-
-Another option is the Sonoff RF Bridge 433 MHz.  
-
-It appears required to follow one of the two methods described below so that "protocol 1" is available [see Modifications section].  
-https://github.com/xoseperez/espurna/wiki/Hardware-Itead-Sonoff-RF-Bridge
-
-Flashing Portisch is described here:  
-https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/#rf-firmware-upgrade
-
-Portisch is not supported on Sonoff R2 v2.2 hardware:  
-https://github.com/Portisch/RF-Bridge-EFM8BB1/issues/217
-
-[ESPurna](https://github.com/xoseperez/espurna "ESPurna") is nice because it treats wireless sensors as "virtual" sensors.  
-Virtual sensors show up as permanent switch entities in Home Assistant.  
-Also ESPurna can learn/remember unique sensor codes.  
-
-
-[Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota") firmware can also be flashed.  
 
 
 ### Wireless door/window sensor

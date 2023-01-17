@@ -31,8 +31,11 @@
 #define BATTERY_DETECT P3_5
 
 
-// radio protocol requires sending packet twice so it is accepted at receiver
-#define REPEAT_TIMES   2
+// radio protocol apparently requires repeated transmissions so it is accepted at receiver
+// Portisch firmware for EFM8BB1 seems to require only repeating twice
+#define REPEAT_TRANSMISSIONS 2
+// stock EFM8BB1 seems to require more retransmissions
+//#define REPEAT_TRANSMISSIONS 4
 
 // milliseconds
 #define RADIO_STARTUP_TIME 120
@@ -111,6 +114,16 @@ const uint16_t gZeroHigh  =   35;
 const uint16_t gZeroLow   =  105;
 const uint16_t gOneHigh   =  105;
 const uint16_t gOneLow    =   35;
+
+// stock sensor timings (see door_sensor_reverse_notes_fv1.txt)
+// (tested working on Sonoff Bridge R2 V1.0)
+// (does not work on stock Sonoff Bridge R2 V2.2)
+//const uint16_t gPulseHigh =   47;
+//const uint16_t gPulseLow  = 1363;
+//const uint16_t gZeroHigh  =   47;
+//const uint16_t gZeroLow   =  136;
+//const uint16_t gOneHigh   =  136;
+//const uint16_t gOneLow    =   47;
 
 // it saves code space to just specify a single protocol and use define here
 // uncomment only one line immediately below
@@ -356,7 +369,7 @@ void sendRadioPacket(const unsigned char rfcode)
     delay1ms(RADIO_STARTUP_TIME);
     
     // sonoff or tasmota or espurna seems to require sending twice to accept receipt
-    for (index = 0; index < REPEAT_TIMES; index++)
+    for (index = 0; index < REPEAT_TRANSMISSIONS; index++)
     {
         rfsyncPulse();
 

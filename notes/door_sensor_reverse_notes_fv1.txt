@@ -1,4 +1,16 @@
 ############################################################################
+# 1/17/2022
+############################################################################
+If we use Portisch we can just support Protocol 1.
+Or hardware modification to bypass EFM8BB1 and perform decoding directly on ESP chip (with Tasmota or ESPurna).
+However this requires all users the step of flashing/hardware modifying.
+
+I reflashed original EFM8BB1 to Sonoff and recover timings from stock door sensor (see below).
+
+23:18:20.879 MQT: tele/tasmota_4339CA/RESULT = {"Time":"2023-01-17T23:18:20","RfReceived":{"Sync":14070,"Low":470,"High":1360,"Data":"967F0A","RfKey":"None"}}
+23:18:22.723 MQT: tele/tasmota_4339CA/RESULT = {"Time":"2023-01-17T23:18:22","RfReceived":{"Sync":14080,"Low":460,"High":1360,"Data":"967F0E","RfKey":"None"}}
+
+############################################################################
 # 12/4/2022
 ############################################################################
 Ultimately we do not really have a need to reverse the original radio protcol/timings.
