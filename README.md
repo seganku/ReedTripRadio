@@ -75,6 +75,10 @@ make upload
 ~/stcgal-patched/stcgal.py -a -p /dev/ttyUSB0 -t 24000 ReedTripRadio.ihx
 ```
 
+### Non free flasher
+[STC-ISP] (http://www.stcmcudata.com/)  
+v6.91J was available 1/16/2023  
+
 ### Receiver Hardware
 Receiving radio packets requires a receiver.  
 We have chosen "protocol 1" from the rc-switch library.  
