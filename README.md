@@ -76,11 +76,28 @@ make upload
 ```
 
 ### Receiver Hardware
-Receiving radio packets requires a receiver. Options include the Sonoff RF Bridge 433 MHz and recommend flashing with open source firmware [Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota") or [ESPurna](https://github.com/xoseperez/espurna "ESPurna"). ESPurna is nice because it treats wireless sensors as "virtual" sensors (show up as permanent switch entities in Home Assistant). Also ESPurna can learn/remember unique sensor codes.
+Receiving radio packets requires a receiver.  
+We have chosen "protocol 1" from the rc-switch library.  
+You can use a generic 433 MHz receiver and controller using [rc-switch](https://github.com/sui77/rc-switch).  
 
-Some Sonoff Bridge(s) contain an onboard EFM8BB1 which can additionally be flashed to support more radio protocols with [Portisch](https://github.com/Portisch/RF-Bridge-EFM8BB1 "Portisch"). I originally thought this would be helpful but apparently most rc-switch protocols are not supported.
 
-You can also use a generic 433 MHz receiver and controller using [rc-switch](https://github.com/sui77/rc-switch) library.
+Another option is the Sonoff RF Bridge 433 MHz.  
+
+It appears required to follow one of the two methods described below so that "protocol 1" is available [see Modifications section].  
+https://github.com/xoseperez/espurna/wiki/Hardware-Itead-Sonoff-RF-Bridge
+
+Flashing Portisch is described here:  
+https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/#rf-firmware-upgrade
+
+Portisch is not supported on Sonoff R2 v2.2 hardware:  
+https://github.com/Portisch/RF-Bridge-EFM8BB1/issues/217
+
+ESPurna is nice because it treats wireless sensors as "virtual" sensors which show up as permanent switch entities in Home Assistant.  
+Also ESPurna can learn/remember unique sensor codes.  
+[ESPurna](https://github.com/xoseperez/espurna "ESPurna").  
+
+Tasmota firmware can also be flashed [Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota").  
+
 
 ### Wireless door/window sensor
 | Source | Link | Price (USD) |
