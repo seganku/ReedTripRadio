@@ -92,11 +92,12 @@ https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/#rf-firmware-upgrade
 Portisch is not supported on Sonoff R2 v2.2 hardware:  
 https://github.com/Portisch/RF-Bridge-EFM8BB1/issues/217
 
-ESPurna is nice because it treats wireless sensors as "virtual" sensors which show up as permanent switch entities in Home Assistant.  
+[ESPurna](https://github.com/xoseperez/espurna "ESPurna") is nice because it treats wireless sensors as "virtual" sensors.  
+Virtual sensors show up as permanent switch entities in Home Assistant.  
 Also ESPurna can learn/remember unique sensor codes.  
-[ESPurna](https://github.com/xoseperez/espurna "ESPurna").  
 
-Tasmota firmware can also be flashed [Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota").  
+
+[Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota") firmware can also be flashed.  
 
 
 ### Wireless door/window sensor
