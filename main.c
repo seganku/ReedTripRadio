@@ -5,7 +5,7 @@
 #include "project-defs.h"
 
 #include <delay.h>
-#include <eeprom-hal.h>
+//#include <eeprom-hal.h>
 //#include <gpio-hal.h>
 //#include <power-hal.h>
 //#include <timer-hal.h>
@@ -17,34 +17,46 @@
 
 
 // hardware pin definitions
-// circuit is voltage divider and high side transistor with processor controlling divider
+//   circuit is voltage divider and high side transistor with processor controlling divider
+//   pin 3.0 is also connected with receive pin on header 
 #define RADIO_VDD      P3_0
 // LED is attached to P3.1 for door sensor RF 433 MHz (STC15W101 and STC15W104 processor, SYN115 RF transmitter)
+// pin 3.1 is also connected with transmit pin on header
 #define LED_PIN        P3_1
 #define REED_SWITCH    P3_2
 #define TAMPER_SWITCH  P3_3
 // ASK modulation to RF chip
 #define RADIO_ASK      P3_4
 // on my board when variable power supply (stand in for battery)
-// reaches just above one volt from starting point of 1.5 volts
-//this signal line goes from high (3.3V) to low (0V)
+//   reaches just above one volt from starting point of 1.5 volts
+//   this signal line goes from high (3.3V) to low (0V)
 #define BATTERY_DETECT P3_5
 
 
 // radio protocol apparently requires repeated transmissions so it is accepted at receiver
-// Portisch firmware for EFM8BB1 seems to require only repeating twice
-#define REPEAT_TRANSMISSIONS 2
-// stock EFM8BB1 seems to require more retransmissions
-//#define REPEAT_TRANSMISSIONS 4
+// portisch firmware for EFM8BB1 seems to require only repeating twice
+// original firmware repeats at least three times (oscilloscope runs out of memory)
+// stock EFM8BB1 seems to require four retransmissions
+// but again rc-switch protocol 1 is not supported with stock apparently
+// some users have reported up to eight retransmissions are required
+#define REPEAT_TRANSMISSIONS 4
+//#define REPEAT_TRANSMISSIONS 8
+
 
 // milliseconds
 #define RADIO_STARTUP_TIME 120
 
 // milliseconds
+#define RADIO_GUARD_TIME    10
+
+// microseconds
+#define DEBOUNCE_TIME_US 20
+
 // maximum is 32768 as per sec. 7.8 power down wake-up special timer
 // highest bit of register will be set to enable wake up timer
 // maximum is 0x7FFF and then highest bit set
 
+// FIXME: needs to be calculate based on 24 MHz clock
 // about 16 seconds
 #define SLEEP_TIME_0 32766
 
@@ -74,13 +86,13 @@ static unsigned char guid1 = 0x00;
 
 // codes used in original firmware
 // (we leave upper bits available for possibly adding transmission count in future)
-static const unsigned char reed_open    = 0x0A;
-static const unsigned char reed_close   = 0x0E;
 // low voltage code reported by https://community.home-assistant.io/t/budget-priced-wife-friendly-wireless-wall-switch-using-433mhz-and-mqtt/88281
 // if sensor is being powered by header pins this will also show low apparently
 static const unsigned char battery_low  = 0x06;
 static const unsigned char tamper_open  = 0x07;
-// added close to support tamper closed
+static const unsigned char reed_open    = 0x0A;
+static const unsigned char reed_close   = 0x0E;
+// added close code to support tamper closed
 // note: if we resend only a generic tamper code (e.g., 0x07) too quickly due to any switch change (e.g., a press and then a release)
 //       I think the duplicate code sent may be discarded at receiver
 static const unsigned char tamper_close = 0x08;
@@ -106,7 +118,7 @@ static const unsigned char tamper_close = 0x08;
 // changed pulse lengths from microseconds to 10 microseconds units
 // because hardware abstraction layer provides delay10us() 
 // I avoid performing multiplies on processor by computing these as constants
-// "protocol 1" is the first protocol also supported by Portisch
+// "protocol 1" is the first rc-switch protocol which also supported by Portisch
 // (https://github.com/Portisch/RF-Bridge-EFM8BB1/blob/master/inc/RF_Protocols.h)
 const uint16_t gPulseHigh =   35;
 const uint16_t gPulseLow  = 1085;
@@ -156,20 +168,22 @@ struct Settings {
     unsigned char eepromWritten;
     unsigned char protocol;
     uint16_t sleepTime;
-    bool tamperHeartbeatEnabled;
+    bool batteryLowDetectEnabled;
     bool reedHeartbeatEnabled;
+    bool tamperHeartbeatEnabled;
     bool tamperTripEnabled;
 };
 
 // default is to pick least frequent wake up time and disable radio heartbeats to save power
 // convention with eeprom is often that uninitialized is 0xff
 struct Settings setting = {
-    .eepromWritten = 0xFF, 
+    .eepromWritten = 0xff, 
     .protocol = 0, 
-    .sleepTime = SLEEP_TIME_0, 
-    .tamperHeartbeatEnabled = false, 
-    .reedHeartbeatEnabled   = false,
-    .tamperTripEnabled      = true
+    .sleepTime = SLEEP_TIME_0,
+    .batteryLowDetectEnabled = false,
+    .tamperHeartbeatEnabled  = false, 
+    .reedHeartbeatEnabled    = false,
+    .tamperTripEnabled       = false
 };
 
 
@@ -187,8 +201,7 @@ inline void disable_radio_vdd(void)
     RADIO_VDD = 1;
 }
 
-// are these functions inlined by compiler automatically?
-// apparently note, so specify inline
+// specify inline to save some flash code space
 inline void radio_ask_high()
 {
     #if PROTOCOL_INVERTED
@@ -219,12 +232,6 @@ inline void led_off(void)
     LED_PIN = 1;
 }
 
-// using pullup on mcu pin is apparently needed provide high level to tamper switch
-inline void enable_tamper_pullup(void)
-{
-    TAMPER_SWITCH = 1;
-}
-
 inline void enable_ext0(void)
 {
     // clear so that interrrupt triggers on falling and rising edges (should be default)
@@ -249,10 +256,10 @@ inline void enable_global_interrupts(void)
     EA = 1;
 }
 
-// allows long delays with 10 microsecond function at the expense of accuracy
+// allows integer delays with 10 microsecond function at the expense of accuracy
 void delay10us_wrapper(unsigned int microseconds)
 {
-    const unsigned char step = 0xFF;
+    const unsigned char step = 0xff;
     
     while (microseconds > step)
     {
@@ -276,8 +283,7 @@ void pulseLED(void)
     delay1ms(LED_LOW_TIME);
 }
 
-/*! \brief Pull up to pin must be enabled to read tamper switch.
- *         Need to measure current usage to compare to using interrupts.
+/*! \brief 
  *
  */        
 inline bool isTamperOpen(void)
@@ -298,6 +304,7 @@ inline bool isReedOpen(void)
     return pinState;
 }
 
+// read resistive divider state
 inline bool isBatteryLow(void)
 {
     volatile bool pinState;
@@ -313,6 +320,7 @@ void rfsyncPulse()
     radio_ask_high();
     delay10us_wrapper(gPulseHigh);
     
+    // this should be the only really long delay required
     radio_ask_low();
     delay10us_wrapper(gPulseLow);
 }
@@ -368,7 +376,7 @@ void sendRadioPacket(const unsigned char rfcode)
     // standby delay time (min, 30), typical(75), max(120) milliseconds
     delay1ms(RADIO_STARTUP_TIME);
     
-    // sonoff or tasmota or espurna seems to require sending twice to accept receipt
+    // sonoff or tasmota or espurna seems to require sending repeatedly to accept receipt
     for (index = 0; index < REPEAT_TRANSMISSIONS; index++)
     {
         rfsyncPulse();
@@ -380,63 +388,42 @@ void sendRadioPacket(const unsigned char rfcode)
     }
     
     disable_radio_vdd();
+    
+    // FIXME: the placement of this delay seems poor
+    // FIXME: is this even necessary as compared with original firmware behavior?
+    // delay before (if) sending next packet so as not to overwhelm receiver
+    delay1ms(RADIO_GUARD_TIME);
 }
 
-//FIXME: handle reentrancy?
+
 //-----------------------------------------
+//FIXME: handle reentrancy?
+// interrupt and wake up on reed pin change
 void external_isr0(void) __interrupt 0
 {
-    if (flag.reedCount < SWITCH_HISTORY_SIZE)
-    {
-        flag.reedIsOpen[flag.reedCount] = REED_SWITCH;
-        
-        flag.reedCount++;
-    }
+    flag.reedInterrupted = true;
 }
 
 //-----------------------------------------
+// interrupt and wake up on tamper switch pin change
 void external_isr1(void) __interrupt 2
 {
-    const bool tamperState = TAMPER_SWITCH;
-    
-    if (flag.tamperCount < SWITCH_HISTORY_SIZE)
-    {
-        flag.tamperIsOpen[flag.tamperCount] = tamperState;
-        
-        if (setting.tamperTripEnabled)
-        {
-            if (tamperState)
-            {
-                flag.tamperTripped = true;
-            }
-        }
-    
-        flag.tamperCount++;
-    }
+    flag.tamperInterrupted = true;
 }
 
-//TODO: push pull mode uses lots of current, so need to see if it is avoidable
-//batteryMonitor GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN5, GPIO_HIGH_IMPEDANCE_MODE);
-//radioASK       GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN4, GPIO_BIDIRECTIONAL_MODE);
-//tamperSwitch   GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN3, GPIO_PUSH_PULL_MODE);
-//reedSwitch     GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN2, GPIO_HIGH_IMPEDANCE_MODE);
-//ledPin         GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN1, GPIO_OPEN_DRAIN_MODE);
-//radioVDD       GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN0, GPIO_OPEN_DRAIN_MODE);
+// sec. 4.1 All port pins default to quasi-bidirectional after reset. Each one has a Schmitt-triggered input for improved input noise rejection.
+//batteryMonitor GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN5, GPIO_HIGH_IMPEDANCE_MODE)
+//radioASK       GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN4, GPIO_BIDIRECTIONAL_MODE)
+//tamperSwitch   GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN3, GPIO_BIDIRECTIONAL_MODE)
+//reedSwitch     GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN2, GPIO_BIDIRECTIONAL_MODE)
+//ledPin         GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN1, GPIO_OPEN_DRAIN_MODE)
+//radioVDD       GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN0, GPIO_OPEN_DRAIN_MODE)
 inline void configure_pin_modes(void)
 {
-    P3M1 |= 0x20;
-    P3M1 &= ~0x10;
-    P3M1 &= ~0x08;
-    P3M1 |= 0x04;
-    P3M1 |= 0x02;
-    P3M1 |= 0x01;
-    
-    P3M0 &= ~0x20;
-    P3M0 &= ~0x10;
-    P3M0 |= 0x08;
-    P3M0 &= ~0x04;
-    P3M0 |= 0x02;
-    P3M0 |= 0x01;
+    // avoid bit operations to save on flash code space
+    // just explicitly set pin values
+    P3M1 = 0x23;
+    P3M0 = 0x03;
 }
 
 void main(void)
@@ -444,14 +431,17 @@ void main(void)
     // as per HAL instructions
     INIT_EXTENDED_SFR();
     
+    // make the code a little cleaner below
+    bool tamperState;
+    
     // allow possibility to flash multiple pulses
     unsigned char ledPulseCount = 0;
     
     // code pointer for reading microcontroller unique id
-    __code unsigned char  *cptr;
+    __code unsigned char *cptr;
 
 
-    // setup gpio, strong pull up, input only, etc.
+    // setup gpio
     configure_pin_modes();
     
     // double pulse LED at startup
@@ -464,15 +454,13 @@ void main(void)
     // datasheet warns against applying (high) pulses to ASK pin while power is disabled
     radio_ask_low();
     
-    // provide a pull up voltage to the tamper switch
-    enable_tamper_pullup();
-    
     // give the microcontroller time to stabilize
     delay1ms(CONTROLLER_STARTUP_TIME);
 
 
     // copy unigue processor ID from flash to RAM
     // (sec. 1.12 global unique ID shows placement in ram, but addressing there does not seem to work)
+    // FIXME: try reading from ram locations
     cptr = (__code unsigned char*) ID_ADDR_ROM;
     guid0   = *(cptr + 5);
     guid1   = *(cptr + 6);
@@ -497,6 +485,50 @@ void main(void)
             
             // enable wake up timer
             WKTC |= 0x8000;
+        }
+        
+        // do debouncing and switch state saving here rather than in interrupt
+        //   one reason being that calling functions within interrupt produces too many pushes/pops to stack
+        if (flag.reedInterrupted)
+        {
+            // slope on reed switch from high to low is about 200 microseconds as measured on oscilloscope
+            // FIXME: this may be a terrible debounce
+            delay10us(DEBOUNCE_TIME_US);
+            
+            // FIXME: need to retest if saving history is necessary or working
+            if (flag.reedCount < SWITCH_HISTORY_SIZE)
+            {
+                flag.reedIsOpen[flag.reedCount] = isReedOpen();
+                
+                flag.reedCount++;
+            }
+            
+            flag.reedInterrupted = false;
+        }
+        
+        if (flag.tamperInterrupted)
+        {            
+            // FIXME: another terrible debounce
+            delay10us(DEBOUNCE_TIME_US);
+            
+            tamperState = isTamperOpen();
+            
+            if (flag.tamperCount < SWITCH_HISTORY_SIZE)
+            {
+                flag.tamperIsOpen[flag.tamperCount] = tamperState;
+                
+                if (setting.tamperTripEnabled)
+                {
+                    if (tamperState)
+                    {
+                        flag.tamperTripped = true;
+                    }
+                }
+            
+                flag.tamperCount++;
+            }
+            
+            flag.tamperInterrupted = false;
         }
         
         // do not go to sleep if unsent radio packets are available
@@ -561,12 +593,16 @@ void main(void)
         
         // FIXME: consider making interrupt based
         // FIXME: consider distinguising between battery going from low to high versus high to low
-        // whenever microcontroller is awake just check for low battery
-        if (isBatteryLow())
+        // right now, we are just checking for low battery any time microcontroller is awake
+        // note: if the sensor is powered by the header pins a low battery will always be detected
+        if (setting.batteryLowDetectEnabled)
         {
-            sendRadioPacket(battery_low);
-            
-            ledPulseCount = 1;
+            if (isBatteryLow())
+            {
+                sendRadioPacket(battery_low);
+                
+                ledPulseCount = 1;
+            }
         }
 
         // send reed switch state if count is incremented by interrupt
