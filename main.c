@@ -1,5 +1,5 @@
 /*
-    Alternative firmware for STC15W104 processor + SYN115 radio transmitter door/window reed sensor(s)
+    Alternative firmware for STC15W101/4 processor + SYN115 radio transmitter door/window reed sensor(s)
     (see README)
  */
 #include "project-defs.h"
@@ -47,16 +47,16 @@
 #define RADIO_STARTUP_TIME 120
 
 // milliseconds
-#define RADIO_GUARD_TIME    10
+#define RADIO_GUARD_TIME 10
 
-// microseconds
-#define DEBOUNCE_TIME_US 20
+// tens of microseconds
+#define DEBOUNCE_TIME_10US 20
 
 // maximum is 32768 as per sec. 7.8 power down wake-up special timer
 // highest bit of register will be set to enable wake up timer
 // maximum is 0x7FFF and then highest bit set
 
-// FIXME: needs to be calculate based on 24 MHz clock
+// FIXME: needs to be calculated based on 24 MHz clock
 // about 16 seconds
 #define SLEEP_TIME_0 32766
 
@@ -71,18 +71,25 @@
 // array size
 #define SWITCH_HISTORY_SIZE 8
 
-// unique ID location in FLASH
-//4K MCU(eg. STC15F404AD, STC15F204EA, STC15F104EA)
-#define ID_ADDR_ROM 0x0FF9
+// unique ID location in flash
+//  1K MCU (e.g. STC15W101)
+// #define ID_ADDR_ROM 0x03f9
+//  4K MCU (eg. STC15W104)
+//#define ID_ADDR_ROM 0x0ff9
 
-// unique ID location in RAM
-//#define GUID_ADDR_RAM 0xF1
+// unique ID is stored in ram in the same locations on mcu 101/104 parts
+// see makefile - we are limiting ram size so that it is not initialized at these addresses
+// it is possible to pull id from flash space, but it is at different locations on different sized parts
+// note: the values stored in ram at these locations should match the last four characters shown by Target UID when flashing
+#define ID0_ADDR_RAM 0x76
+#define ID1_ADDR_RAM 0x77
 
-// placeholder bytes (0x00) are filled with global unique identification number to derive radio messages as original firmware did
+
+// point at ram locations to derive uniqe id for inclusion in radio messages as original firmware did
 // see sec. 1.12 global unique identification number STC15-English.pdf
-// last byte is a code indicating state (open, closed, tamper) as used on original firmware
-static unsigned char guid0 = 0x00;
-static unsigned char guid1 = 0x00;
+static const __idata unsigned char *guid0 = (__idata unsigned char*) ID0_ADDR_RAM;
+static const __idata unsigned char *guid1 = (__idata unsigned char*) ID1_ADDR_RAM;
+
 
 // codes used in original firmware
 // (we leave upper bits available for possibly adding transmission count in future)
@@ -99,7 +106,6 @@ static const unsigned char tamper_close = 0x08;
 
 
 // rc-switch project timings (https://github.com/sui77/rc-switch)
-// FIXME: Other protocols are not working on Sonoff Bridge w/ Tasmota so need to investigate
 // static const struct Protocol protocols[] = {
   // { 350, {  1, 31 }, {  1,  3 }, {  3,  1 }, false },    // protocol 1
   // { 650, {  1, 10 }, {  1,  2 }, {  2,  1 }, false },    // protocol 2
@@ -137,7 +143,7 @@ const uint16_t gOneLow    =   35;
 //const uint16_t gOneHigh   =  136;
 //const uint16_t gOneLow    =   47;
 
-// it saves code space to just specify a single protocol and use define here
+// it saves code space to just specify a single polarity and use define here
 // uncomment only one line immediately below
 #define PROTOCOL_INVERTED false
 //#define PROTOCOL_INVERTED true
@@ -147,6 +153,7 @@ const uint16_t gOneLow    =   35;
 struct Flags {
     volatile bool reedInterrupted;
     volatile bool tamperInterrupted;
+    volatile bool lowBatteryInterrupted;
     volatile bool tamperTripped;
     volatile bool reedIsOpen[SWITCH_HISTORY_SIZE];
     volatile bool tamperIsOpen[SWITCH_HISTORY_SIZE];
@@ -168,7 +175,6 @@ struct Settings {
     unsigned char eepromWritten;
     unsigned char protocol;
     uint16_t sleepTime;
-    bool batteryLowDetectEnabled;
     bool reedHeartbeatEnabled;
     bool tamperHeartbeatEnabled;
     bool tamperTripEnabled;
@@ -180,7 +186,6 @@ struct Settings setting = {
     .eepromWritten = 0xff, 
     .protocol = 0, 
     .sleepTime = SLEEP_TIME_0,
-    .batteryLowDetectEnabled = false,
     .tamperHeartbeatEnabled  = false, 
     .reedHeartbeatEnabled    = false,
     .tamperTripEnabled       = false
@@ -246,8 +251,13 @@ inline void enable_ext1(void)
     // set default such that external interrupt is triggered on falling and rising edges
     IT1 = 0;
     
-    // enable external interrupt 0
+    // enable external interrupt 1
     IE1 |= M_EX1;
+}
+
+inline void enable_ext3(void)
+{
+    INT_CLKO |= M_EX3;
 }
 
 inline void enable_global_interrupts(void)
@@ -381,9 +391,9 @@ void sendRadioPacket(const unsigned char rfcode)
     {
         rfsyncPulse();
 
-        // send rf key
-        send(guid0);
-        send(guid1);
+        // send rf key with unique id and code
+        send(*guid0);
+        send(*guid1);
         send(rfcode);
     }
     
@@ -398,7 +408,7 @@ void sendRadioPacket(const unsigned char rfcode)
 
 //-----------------------------------------
 //FIXME: handle reentrancy?
-// interrupt and wake up on reed pin change
+// interrupt and wake up on reed pin change (default is rising and falling edge)
 void external_isr0(void) __interrupt 0
 {
     flag.reedInterrupted = true;
@@ -411,6 +421,13 @@ void external_isr1(void) __interrupt 2
     flag.tamperInterrupted = true;
 }
 
+//-----------------------------------------
+// interrupt and wake up on tamper switch pin change
+void external_isr3(void) __interrupt 11
+{
+    flag.lowBatteryInterrupted = true;
+}
+
 // sec. 4.1 All port pins default to quasi-bidirectional after reset. Each one has a Schmitt-triggered input for improved input noise rejection.
 //batteryMonitor GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN5, GPIO_HIGH_IMPEDANCE_MODE)
 //radioASK       GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN4, GPIO_BIDIRECTIONAL_MODE)
@@ -421,7 +438,7 @@ void external_isr1(void) __interrupt 2
 inline void configure_pin_modes(void)
 {
     // avoid bit operations to save on flash code space
-    // just explicitly set pin values
+    // just explicitly set gpio mode
     P3M1 = 0x23;
     P3M0 = 0x03;
 }
@@ -431,21 +448,27 @@ void main(void)
     // as per HAL instructions
     INIT_EXTENDED_SFR();
     
-    // make the code a little cleaner below
+    // makes the code a little cleaner below
     bool tamperState;
     
     // allow possibility to flash multiple pulses
     unsigned char ledPulseCount = 0;
-    
-    // code pointer for reading microcontroller unique id
-    __code unsigned char *cptr;
-
 
     // setup gpio
     configure_pin_modes();
     
-    // double pulse LED at startup
-    pulseLED();
+    // if we are holding down tamper switch at power up, enter iap mode
+    // this is intended to make entering flash mode easier on subsequent flashes
+    // if the board has no tamper switch, then this will just never do anything
+    // if a regular user is inserting a battery, it is unlikely that they are also pressing tamper switch
+    //  so this should just be skipped over in that case
+    while (!isTamperOpen())
+    {
+        // set ISP boot bit and reset processor
+        IAP_CONTR = 0x60;
+    }
+    
+    // pulse LED at startup
     pulseLED();
     
     // disable power to radio for power saving and to disallow any transmission
@@ -457,13 +480,6 @@ void main(void)
     // give the microcontroller time to stabilize
     delay1ms(CONTROLLER_STARTUP_TIME);
 
-
-    // copy unigue processor ID from flash to RAM
-    // (sec. 1.12 global unique ID shows placement in ram, but addressing there does not seem to work)
-    // FIXME: try reading from ram locations
-    cptr = (__code unsigned char*) ID_ADDR_ROM;
-    guid0   = *(cptr + 5);
-    guid1   = *(cptr + 6);
     
     // does exactly what the function name says
     enable_global_interrupts();
@@ -472,6 +488,9 @@ void main(void)
     // enable tamper and reed interrupts
     enable_ext0();
     enable_ext1();
+    
+    // enable low battery detect interrupt
+    enable_ext3();
 
     // Main loop -------------------------------------------------------
     while (true)
@@ -493,9 +512,9 @@ void main(void)
         {
             // slope on reed switch from high to low is about 200 microseconds as measured on oscilloscope
             // FIXME: this may be a terrible debounce
-            delay10us(DEBOUNCE_TIME_US);
+            delay10us(DEBOUNCE_TIME_10US);
             
-            // FIXME: need to retest if saving history is necessary or working
+            // FIXME: need to revisit if saving history is necessary or even desired
             if (flag.reedCount < SWITCH_HISTORY_SIZE)
             {
                 flag.reedIsOpen[flag.reedCount] = isReedOpen();
@@ -504,12 +523,14 @@ void main(void)
             }
             
             flag.reedInterrupted = false;
+            
+            ledPulseCount = 1;
         }
         
         if (flag.tamperInterrupted)
         {            
             // FIXME: another terrible debounce
-            delay10us(DEBOUNCE_TIME_US);
+            delay10us(DEBOUNCE_TIME_10US);
             
             tamperState = isTamperOpen();
             
@@ -529,9 +550,11 @@ void main(void)
             }
             
             flag.tamperInterrupted = false;
+            
+            ledPulseCount = 1;
         }
         
-        // do not go to sleep if unsent radio packets are available
+        // skip this (do not go to sleep) if unsent radio packets are available
         if ((flag.reedCount == 0) && (flag.tamperCount == 0))
         {
             // this will either wake up in the future due to timer (if enabled) or due to interrupt
@@ -560,7 +583,7 @@ void main(void)
             ledPulseCount = 1;
         }
         
-        // similar period message but for reed switch
+        // similar periodic message but for reed switch
         if (setting.reedHeartbeatEnabled)
         {
             if(isReedOpen())
@@ -591,18 +614,14 @@ void main(void)
             }
         }
         
-        // FIXME: consider making interrupt based
-        // FIXME: consider distinguising between battery going from low to high versus high to low
-        // right now, we are just checking for low battery any time microcontroller is awake
-        // note: if the sensor is powered by the header pins a low battery will always be detected
-        if (setting.batteryLowDetectEnabled)
+        // FIXME: this will only trigger once as is
+        if (flag.lowBatteryInterrupted)
         {
-            if (isBatteryLow())
-            {
-                sendRadioPacket(battery_low);
+            sendRadioPacket(battery_low);
+            
+            flag.lowBatteryInterrupted = false;
                 
-                ledPulseCount = 1;
-            }
+            ledPulseCount = 1;
         }
 
         // send reed switch state if count is incremented by interrupt

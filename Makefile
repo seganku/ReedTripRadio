@@ -62,12 +62,13 @@ STACK_SIZE := 16
 
 # limit code size to 1 KB to support '101 part
 # take care to account for 7 bytes of unique id
-# so for example 1024 byte part minus 7 bytes is limited to 1017 flash
+# so for example is unique id is at locations 0x71 to 0x77 we can only use 113 bytes of ram
+# alternative approach would be to use custom _sdcc_external_startup() sec. 4.1.4 mcs51 startup code in sdccman.pdf
 MEMORY_SIZES = \
-    --iram-size 128 \
+    --iram-size 113 \
     --xram-size 0 \
     --stack-size $(STACK_SIZE) \
-    --code-size 1017
+    --code-size 1024
 
 #
 MEMORY_MODEL := --model-small

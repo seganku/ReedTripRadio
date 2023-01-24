@@ -31,7 +31,7 @@
 #define _PROJECT_DEFS_H
 
 // support STC15W10X microcontroller, with X = 1 in my case
-// another door sensor purchased is X = 4
+// another door sensor purchased is X = 4 with more flash space and tamper switch
 #include <STC/15W10x/DIP8.h>
 
 #endif // _PROJECT_DEFS_H

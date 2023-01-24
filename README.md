@@ -16,7 +16,10 @@ Finally, STC processors do not allow read/verify of written firmware.
 Therefore an open source alternative is needed to confirm program behavior.  
 Also for this reason original firmware can not be reflashed once overwritten.  
 
-Boards contain a header that may be populated with pins labeled with G (ground), T (transmit), and R (receive) for flashing with USB to UART module.
+Boards contain a header that may be populated with pins labeled with G (ground), T (transmit), R (receive), and V (3.3 volts) for flashing with USB to UART module.
+Alternatively the battery terminal maybe powered and only G, T, R pins connected for flashing.
+The board needs fewer than 100 milliamps.
+
 
 ### Receiver Hardware
 Receiving radio packets requires a receiver.  
@@ -48,6 +51,7 @@ Also ESPurna can learn/remember unique sensor codes.
 
 [Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota") firmware can also be flashed.  
 
+
 ### Features
 
 | Proposed | original or added | status |
@@ -61,6 +65,7 @@ Also ESPurna can learn/remember unique sensor codes.
 | Add tamper closed key  | added  | DONE |
 | Add tamper "trip" mode   | added  | DONE |
 | Send code if pin goes low indicating low battery   | original  | DONE |
+| Add packet count to upper bits of transmitted rf code    | added  | todo |
 | Store settings in EEPROM  | added  | todo |
 | Send information over radio (e.g., settings?, battery?)  | added  | todo |
 | Compare power usage to original firmware  | added  | todo |
@@ -106,8 +111,6 @@ make upload
 
 ### Non free flasher
 [STC-ISP] (http://www.stcmcudata.com/)  
-v6.91J was available 1/16/2023  
-
 
 ### Wireless door/window sensor
 | Source | Link | Price (USD) |
