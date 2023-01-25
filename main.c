@@ -15,6 +15,10 @@
     #error "The selected MCU doesn't have a power-down wake-up timer."
 #endif // MCU_HAS_WAKE_UP_TIMER
 
+// check for tamper switch pressed at startup, if so enter bootloader mode
+//#define CHECK_FOR_TAMPER_AT_STARTUP true
+#define CHECK_FOR_TAMPER_AT_STARTUP false
+
 
 // hardware pin definitions
 //   circuit is voltage divider and high side transistor with processor controlling divider
@@ -341,20 +345,21 @@ void rfsyncPulse()
  */  
 void send(const unsigned char byte)
 {
-    unsigned char i = 0;
     const unsigned char numBits = 8;
     
     // mask out highest bit
     const unsigned char mask = 1 << (numBits - 1);
     
+    unsigned char i = 0;
+
     // byte for shifting
     unsigned char toSend = byte;
     
     // Repeat until all bits sent
     for(i = 0; i < numBits; i++)
     {
-        // check left most bit value, and if equal to one then send one level
-        if((toSend & mask) == mask)
+        // mask out all but left most bit value, and if byte is not equal to zero (i.e. left most bit must be one) then send one level
+        if((toSend & mask) > 0)
         {
             radio_ask_high();
             delay10us_wrapper(gOneHigh);
@@ -443,6 +448,15 @@ inline void configure_pin_modes(void)
     P3M0 = 0x03;
 }
 
+// sec. 4.9.1 quasi-bidirectional i/o
+// enables weak pullups for reed and tamper switches assuming we are in bidirectional mode
+// and makes sure power to radio chip is disabled
+// note: do not use radio_ask_low() to disable power because it might be inverted so would actually enable power!
+inline void startup_pins_state(void)
+{
+    P3 = 0x0d;
+}
+
 void main(void)
 {
     // as per HAL instructions
@@ -456,7 +470,14 @@ void main(void)
 
     // setup gpio
     configure_pin_modes();
+    startup_pins_state();
     
+    // give the microcontroller time to stabilize
+    delay1ms(CONTROLLER_STARTUP_TIME);
+
+
+#if CHECK_FOR_TAMPER_AT_STARTUP
+
     // if we are holding down tamper switch at power up, enter iap mode
     // this is intended to make entering flash mode easier on subsequent flashes
     // if the board has no tamper switch, then this will just never do anything
@@ -468,18 +489,10 @@ void main(void)
         IAP_CONTR = 0x60;
     }
     
+#endif CHECK_FOR_TAMPER_AT_STARTUP
+    
     // pulse LED at startup
     pulseLED();
-    
-    // disable power to radio for power saving and to disallow any transmission
-    disable_radio_vdd();
-    
-    // datasheet warns against applying (high) pulses to ASK pin while power is disabled
-    radio_ask_low();
-    
-    // give the microcontroller time to stabilize
-    delay1ms(CONTROLLER_STARTUP_TIME);
-
     
     // does exactly what the function name says
     enable_global_interrupts();
@@ -558,8 +571,9 @@ void main(void)
         if ((flag.reedCount == 0) && (flag.tamperCount == 0))
         {
             // this will either wake up in the future due to timer (if enabled) or due to interrupt
-            // datasheet and example HAL show providing nops() after power down
             PCON |= M_PD;
+            
+            // sec. 2.3.3.1 demo program in datasheet and example HAL show providing nops() after power down
             NOP();
             NOP();
             
