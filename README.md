@@ -1,25 +1,28 @@
 ### Description
 This is an alternative firmware for wireless 433MHz magnetic door/window reed sensors.
 
+This work is made possible by Vincent Defert's hardware abstraction layer for STC 8051 MCUs:
+https://github.com/area-8051/uni-STC
+
 STC15W101/104 are 8051 based processors + SYN115 radio transmitter.  
-'101 model has 1KB flash.  
-'104 model has 4KB flash and circuit board also has a tamper detect switch.
+'101 model has 1KB flash
+'104 model has 4KB flash
+(most boards but not all have a tamper detect switch installed, you could add one if yours does not)
  
-Instead of supporting software serial or full hardware abstraction layer (HAL),  
-it is decided to keep firmware under 1KB so it works on multiple processors/boards.  
+As of now, adding more additional features is unlikely.
+This is because it was decided to keep firmware under 1KB to support model '101 MCUs/boards.  
 
 One possibility however is to use emulated EEPROM area for code space.  
 Experiments with booting from other memory spaces have not worked so far:  
 https://github.com/mightymos/stc15bootisp/issues/1  
 
-Finally, STC processors do not allow read/verify of written firmware.  
+Finally, STC MCUs do not allow read/verify of written firmware.  
 Therefore an open source alternative is needed to confirm program behavior.  
 Also for this reason original firmware can not be reflashed once overwritten.  
 
 Boards contain a header that may be populated with pins labeled with G (ground), T (transmit), R (receive), and V (3.3 volts) for flashing with USB to UART module.
 Alternatively the battery terminal maybe powered and only G, T, R pins connected for flashing.
 The board needs fewer than 100 milliamps.
-
 
 ### Receiver Hardware
 Receiving radio packets requires a receiver.  
@@ -65,14 +68,14 @@ Also ESPurna can learn/remember unique sensor codes.
 | Add tamper closed key  | added  | DONE |
 | Add tamper "trip" mode   | added  | DONE |
 | Send code if pin goes low indicating low battery   | original  | DONE |
+| Send information over radio (e.g., battery?)  | added  | DONE |
+| Support stock transmission protocols  | added  | todo |
 | Add packet count to upper bits of transmitted rf code    | added  | todo |
+| User configuration/input with tamper switch press(es) | added  | todo |
 | Store settings in EEPROM  | added  | todo |
-| Send information over radio (e.g., settings?, battery?)  | added  | todo |
 | Compare power usage to original firmware  | added  | todo |
-| Test other transmission protocols  | added  | todo |
 | Adjustable LED blink behavior   | added  | todo |
 | Adjustable sleep behavior  | added  | todo |
-| User configuration/input with tamper switch press(es) | added  | todo |
 
 ![alt text](/photos/water_leak_store_hookup_example.jpg "Wireless 433 MHz Door Sensor")
 

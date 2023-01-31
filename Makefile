@@ -61,6 +61,7 @@ MCU_FREQ_KHZ := 24000
 STACK_SIZE := 16
 
 # limit code size to 1 KB to support '101 part
+# (actually to 1017 bytes because unique id is stored at 0x3f9 as per sec. 1.12 global unique identification number STC15-English.pdf)
 # take care to account for 7 bytes of unique id
 # so for example is unique id is at locations 0x71 to 0x77 we can only use 113 bytes of ram
 # alternative approach would be to use custom _sdcc_external_startup() sec. 4.1.4 mcs51 startup code in sdccman.pdf
@@ -68,7 +69,7 @@ MEMORY_SIZES = \
     --iram-size 113 \
     --xram-size 0 \
     --stack-size $(STACK_SIZE) \
-    --code-size 1024
+    --code-size 1017
 
 #
 MEMORY_MODEL := --model-small

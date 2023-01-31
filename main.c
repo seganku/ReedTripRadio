@@ -5,6 +5,8 @@
 #include "project-defs.h"
 
 #include <delay.h>
+
+// just do not have much more space for HAL with 1KB flash code size
 //#include <eeprom-hal.h>
 //#include <gpio-hal.h>
 //#include <power-hal.h>
@@ -16,8 +18,8 @@
 #endif // MCU_HAS_WAKE_UP_TIMER
 
 // check for tamper switch pressed at startup, if so enter bootloader mode
-//#define CHECK_FOR_TAMPER_AT_STARTUP true
-#define CHECK_FOR_TAMPER_AT_STARTUP false
+#define CHECK_FOR_TAMPER_AT_STARTUP true
+//#define CHECK_FOR_TAMPER_AT_STARTUP false
 
 
 // hardware pin definitions
@@ -40,9 +42,10 @@
 // radio protocol apparently requires repeated transmissions so it is accepted at receiver
 // portisch firmware for EFM8BB1 seems to require only repeating twice
 // original firmware repeats at least three times (oscilloscope runs out of memory)
+// @bismosa reports stock repeats transmission twenty times!
 // stock EFM8BB1 seems to require four retransmissions
 // but again rc-switch protocol 1 is not supported with stock apparently
-// some users have reported up to eight retransmissions are required
+// mmotley999 reported up to eight retransmissions are required
 #define REPEAT_TRANSMISSIONS 4
 //#define REPEAT_TRANSMISSIONS 8
 
@@ -60,20 +63,16 @@
 // highest bit of register will be set to enable wake up timer
 // maximum is 0x7FFF and then highest bit set
 
-// FIXME: needs to be calculated based on 24 MHz clock
-// about 16 seconds
-#define SLEEP_TIME_0 32766
-
-
-// milliseconds
-#define LED_HIGH_TIME 750
-#define LED_LOW_TIME  100
+// pg. 551, sec. 7.8 power down wake up special timer
+// this equates to about 16 seconds according to examples
+// note: why does setting to 0xFFFF wake up too quickly, about every two seconds?
+#define SLEEP_TIME_0 0xfffe
 
 // milliseconds
 #define CONTROLLER_STARTUP_TIME 200
 
 // array size
-#define SWITCH_HISTORY_SIZE 8
+#define SWITCH_HISTORY_SIZE 16
 
 // unique ID location in flash
 //  1K MCU (e.g. STC15W101)
@@ -107,6 +106,8 @@ static const unsigned char reed_close   = 0x0E;
 // note: if we resend only a generic tamper code (e.g., 0x07) too quickly due to any switch change (e.g., a press and then a release)
 //       I think the duplicate code sent may be discarded at receiver
 static const unsigned char tamper_close = 0x08;
+// added battery okay code if anyone will use it
+static const unsigned char battery_ok   = 0x09;
 
 
 // rc-switch project timings (https://github.com/sui77/rc-switch)
@@ -159,40 +160,40 @@ struct Flags {
     volatile bool tamperInterrupted;
     volatile bool lowBatteryInterrupted;
     volatile bool tamperTripped;
-    volatile bool reedIsOpen[SWITCH_HISTORY_SIZE];
-    volatile bool tamperIsOpen[SWITCH_HISTORY_SIZE];
-    volatile unsigned char tamperCount;
-    volatile unsigned char reedCount;
+    volatile unsigned char eventHistory[SWITCH_HISTORY_SIZE];
+    volatile unsigned char eventCount;
 };
 
-// isOpen arrays are not initialized
-// should be alright because we only read when count incremented
+// arrays are not initialized
+// should be alright because we only read when count is incremented
 struct Flags flag = {
-    .reedInterrupted   = false, 
-    .tamperInterrupted = false,
-    .tamperTripped     = false,
-    .tamperCount = 0, 
-    .reedCount   = 0
+    .reedInterrupted       = false, 
+    .tamperInterrupted     = false,
+    .lowBatteryInterrupted = false,
+    .tamperTripped         = false,
+    .eventCount = 0
 };
 
 struct Settings {
-    unsigned char eepromWritten;
-    unsigned char protocol;
-    uint16_t sleepTime;
     bool reedHeartbeatEnabled;
     bool tamperHeartbeatEnabled;
+    bool batteryHeartbeatEnabled;
+    bool interruptsEnabled;
     bool tamperTripEnabled;
 };
 
 // default is to pick least frequent wake up time and disable radio heartbeats to save power
-// convention with eeprom is often that uninitialized is 0xff
 struct Settings setting = {
-    .eepromWritten = 0xff, 
-    .protocol = 0, 
-    .sleepTime = SLEEP_TIME_0,
-    .tamperHeartbeatEnabled  = false, 
+    // only enable tamper heartbeat or tamper trip, not both
+    .tamperHeartbeatEnabled  = false,
+    // if you are worried about missing codes, periodically send by enabling heart beat and (maybe) disable interrupts
     .reedHeartbeatEnabled    = false,
-    .tamperTripEnabled       = false
+    // note that the interrupt to detect battery low is always available
+    .batteryHeartbeatEnabled = false,
+    // recommend only enabling interrupts or heart beat modes, but not both (due to potential for missed codes)
+    .interruptsEnabled       = true,
+    // this is intended to keep transmitting if someone is fooling with housing (tamper is opened), until tamper is again closed
+    .tamperTripEnabled       = true
 };
 
 
@@ -204,7 +205,7 @@ inline void enable_radio_vdd(void)
 }
 
 // pin setting functions are more readable than direct pin setting
-// and avoid making errors (e.g., "enabling" something is actually setting pin equal zero)
+// and avoid making errors (e.g., "enabling" something is actually setting pin equal to zero)
 inline void disable_radio_vdd(void)
 {
     RADIO_VDD = 1;
@@ -284,48 +285,23 @@ void delay10us_wrapper(unsigned int microseconds)
     delay10us(microseconds);
 }
 
-/*! \brief Purpose of pulsing is to avoid leaving LED on because simultaneously powering other radio pins may be exceeding port sink/source capability
- *         Brief description continued.
- *
- */
-void pulseLED(void)
-{
-    led_on();
-    delay1ms(LED_HIGH_TIME);
-    
-    led_off();
-    delay1ms(LED_LOW_TIME);
-}
-
 /*! \brief 
  *
  */        
 inline bool isTamperOpen(void)
 {
-    volatile bool pinState;
-    
-    pinState = TAMPER_SWITCH;
-    
-    return pinState;
+    return TAMPER_SWITCH;
 }
 
 inline bool isReedOpen(void)
-{
-    volatile bool pinState;
-    
-    pinState = REED_SWITCH;
-    
-    return pinState;
+{    
+    return REED_SWITCH;
 }
 
 // read resistive divider state
 inline bool isBatteryLow(void)
-{
-    volatile bool pinState;
-    
-    pinState = BATTERY_DETECT;
-    
-    return !pinState;
+{    
+    return !BATTERY_DETECT;
 }
 
 void rfsyncPulse()
@@ -404,10 +380,7 @@ void sendRadioPacket(const unsigned char rfcode)
     
     disable_radio_vdd();
     
-    // FIXME: the placement of this delay seems poor
-    // FIXME: is this even necessary as compared with original firmware behavior?
-    // delay before (if) sending next packet so as not to overwhelm receiver
-    delay1ms(RADIO_GUARD_TIME);
+    // FIXME: we need to force ask low just in case correct?
 }
 
 
@@ -427,7 +400,7 @@ void external_isr1(void) __interrupt 2
 }
 
 //-----------------------------------------
-// interrupt and wake up on tamper switch pin change
+// interrupt and wake up on battery state change
 void external_isr3(void) __interrupt 11
 {
     flag.lowBatteryInterrupted = true;
@@ -449,12 +422,13 @@ inline void configure_pin_modes(void)
 }
 
 // sec. 4.9.1 quasi-bidirectional i/o
-// enables weak pullups for reed and tamper switches assuming we are in bidirectional mode
-// and makes sure power to radio chip is disabled
-// note: do not use radio_ask_low() to disable power because it might be inverted so would actually enable power!
+// turn led off
+// disable radio power
+// enables weak pullups for reed and tamper switches assuming we are in bidirectional mode (pins high)
+// note: do not use radio_ask_low() to disable power, because it might be inverted, so would actually enable power!
 inline void startup_pins_state(void)
 {
-    P3 = 0x0d;
+    P3 = 0x0f;
 }
 
 void main(void)
@@ -463,17 +437,23 @@ void main(void)
     INIT_EXTENDED_SFR();
     
     // makes the code a little cleaner below
-    bool tamperState;
+    bool state;
+    bool flagCheck;
     
-    // allow possibility to flash multiple pulses
-    unsigned char ledPulseCount = 0;
+    // makes accessing array element more readable below
+    unsigned char index;
 
     // setup gpio
     configure_pin_modes();
     startup_pins_state();
     
+    // pulse LED at startup
+    led_on();
+    
     // give the microcontroller time to stabilize
     delay1ms(CONTROLLER_STARTUP_TIME);
+    
+    led_off();
 
 
 #if CHECK_FOR_TAMPER_AT_STARTUP
@@ -483,22 +463,21 @@ void main(void)
     // if the board has no tamper switch, then this will just never do anything
     // if a regular user is inserting a battery, it is unlikely that they are also pressing tamper switch
     //  so this should just be skipped over in that case
-    while (!isTamperOpen())
+    // FIXME: on mcu 101 boards with or without tamper switch, this seems to get stuck, no idea why
+    if (!isTamperOpen())
     {
         // set ISP boot bit and reset processor
         IAP_CONTR = 0x60;
     }
     
-#endif CHECK_FOR_TAMPER_AT_STARTUP
-    
-    // pulse LED at startup
-    pulseLED();
+#endif // CHECK_FOR_TAMPER_AT_STARTUP
     
     // does exactly what the function name says
     enable_global_interrupts();
 
 
-    // enable tamper and reed interrupts
+    // we always enable tamper and reed interrupts in hardware
+    // but might ignore them depending on settings above
     enable_ext0();
     enable_ext1();
     
@@ -508,93 +487,147 @@ void main(void)
     // Main loop -------------------------------------------------------
     while (true)
     {
-        // only enable wake up timer if any heartbeat is enabled
-        if (setting.tamperHeartbeatEnabled || setting.reedHeartbeatEnabled || setting.tamperTripEnabled)
-        {
-            // FIXME: why does setting to 0x7FFF wake up every two seconds?
-            // set wake up count
-            WKTC = setting.sleepTime;
-            
-            // enable wake up timer
-            WKTC |= 0x8000;
-        }
+        flagCheck  = setting.tamperHeartbeatEnabled;
+        flagCheck |= setting.reedHeartbeatEnabled;
+        flagCheck |= setting.batteryHeartbeatEnabled;
+        flagCheck |= flag.tamperTripped;
         
-        // do debouncing and switch state saving here rather than in interrupt
-        //   one reason being that calling functions within interrupt produces too many pushes/pops to stack
-        if (flag.reedInterrupted)
+        // only enable wake up timer if periodic wake up required, otherwise clear/disable
+        // note: sec. 3.3.1 special function registers address map shows that default state of WKTCx has default value in timer
+        if (flagCheck)
+        {
+            // set wake up count and enable wake up timer bit
+            WKTC = SLEEP_TIME_0;
+        } else {
+            WKTC = 0x0000;
+        }
+
+
+        // go to sleep
+        // program will either resume due to wake up timer (if enabled) or due to interrupt
+        PCON |= M_PD;
+        
+        // sec. 2.3.3.1 demo program in datasheet and example HAL show providing nops() after power down
+        NOP();
+        NOP();
+        
+        // these checks are difficult to read, but allow use to avoid duplicate codes if only interrupt mode or only heart beat mode is enabled
+        flagCheck  = setting.interruptsEnabled;
+        flagCheck &= flag.reedInterrupted;
+
+        // if we do too much in the interrupts themselves it produces too many stack pushes/pops
+        // among other problems that are caused, so perform most logic here
+        if (flagCheck)
         {
             // slope on reed switch from high to low is about 200 microseconds as measured on oscilloscope
             // FIXME: this may be a terrible debounce
             delay10us(DEBOUNCE_TIME_10US);
             
-            // FIXME: need to revisit if saving history is necessary or even desired
-            if (flag.reedCount < SWITCH_HISTORY_SIZE)
+            // more readable for array indexing
+            index = flag.eventCount;
+            
+            // save any switch (or later battery) changes in order of occurence
+            // note: we really do not have code space for checking array overflows
+            if (isReedOpen())
             {
-                flag.reedIsOpen[flag.reedCount] = isReedOpen();
-                
-                flag.reedCount++;
+                flag.eventHistory[index] = reed_open;
+            } else {
+                flag.eventHistory[index] = reed_close;
             }
+            
+            // track count because we might have multiple events in quick succession
+            flag.eventCount++;
             
             flag.reedInterrupted = false;
             
-            ledPulseCount = 1;
         }
         
-        if (flag.tamperInterrupted)
+        
+        flagCheck  = setting.interruptsEnabled;
+        flagCheck &= flag.tamperInterrupted;
+        
+        // we do not check if reed occurred prior to tamper or vice versa but should not matter too much
+        if (flagCheck)
         {            
             // FIXME: another terrible debounce
             delay10us(DEBOUNCE_TIME_10US);
             
-            tamperState = isTamperOpen();
+            index = flag.eventCount;
             
-            if (flag.tamperCount < SWITCH_HISTORY_SIZE)
+            state = isTamperOpen();
+            
+            if (state)
             {
-                flag.tamperIsOpen[flag.tamperCount] = tamperState;
-                
-                if (setting.tamperTripEnabled)
-                {
-                    if (tamperState)
-                    {
-                        flag.tamperTripped = true;
-                    }
-                }
-            
-                flag.tamperCount++;
+                flag.eventHistory[index] = tamper_open;
+            } else {
+                flag.eventHistory[index] = tamper_close;
             }
+            
+            flag.eventCount++;
             
             flag.tamperInterrupted = false;
             
-            ledPulseCount = 1;
+            
+            if (setting.tamperTripEnabled)
+            {
+                if (state)
+                {
+                    // indicate we should periodically send out tamper state until tamper closes again
+                    flag.tamperTripped = true;
+                }
+            }
         }
         
-        // skip this (do not go to sleep) if unsent radio packets are available
-        if ((flag.reedCount == 0) && (flag.tamperCount == 0))
+        // interrupt will only trigger once as battery discharges, unless voltage bounces around
+        if (flag.lowBatteryInterrupted)
         {
-            // this will either wake up in the future due to timer (if enabled) or due to interrupt
-            PCON |= M_PD;
+            if (isBatteryLow())
+            {
+                flag.eventHistory[flag.eventCount] = battery_low;
+                flag.eventCount++;
+            }
             
-            // sec. 2.3.3.1 demo program in datasheet and example HAL show providing nops() after power down
-            NOP();
-            NOP();
-            
-            // FIXME: need to disable wake up timer?
-            WKTC &= ~0x8000;
+            flag.lowBatteryInterrupted = false;
+                
         }
         
-
+        // only allow tamper heart beat mode, if tamper trip mode is disabled
+        flagCheck  =  setting.tamperHeartbeatEnabled;
+        flagCheck &= !setting.tamperTripEnabled;
+        
         // force sending out periodic messages to indicate tamper state
-        if (setting.tamperHeartbeatEnabled)
+        if (flagCheck)
         {
             // send different keys depending on reading push button
             if (isTamperOpen())
             {            
-                sendRadioPacket(tamper_open);
+                flag.eventHistory[flag.eventCount] = tamper_open;
             } else {
-                sendRadioPacket(tamper_close);
+                flag.eventHistory[flag.eventCount] = tamper_close;
             }
             
-            // single pulse LED
-            ledPulseCount = 1;
+            flag.eventCount++;
+        }
+        
+        // only allow tamper trip, if tamper heart beat mode is disabled
+        // 
+        flagCheck  =  setting.tamperTripEnabled;
+        flagCheck &= !setting.tamperHeartbeatEnabled;
+        flagCheck &= flag.tamperTripped;
+        
+        // tamper trip is similar to heart beat mode, but does not send close states
+        if (flagCheck)
+        {
+            // send different keys depending on reading push button
+            if (isTamperOpen())
+            {            
+                flag.eventHistory[flag.eventCount] = tamper_open;
+                flag.eventCount++;
+
+            } else {
+                flag.tamperTripped = false;
+            }
+            
         }
         
         // similar periodic message but for reed switch
@@ -602,90 +635,44 @@ void main(void)
         {
             if(isReedOpen())
             {
-                sendRadioPacket(reed_open);
+                flag.eventHistory[flag.eventCount] = reed_open;
             } else {
-                sendRadioPacket(reed_close);
+                flag.eventHistory[flag.eventCount] = reed_close;
             }
             
-            // notice that we do not increment count
-            // so in effect, multiple radio packets could be sent and we just pulse once
-            // and that is okay so that we save battery and avoid long unneeded delays
-            ledPulseCount = 1;
+            flag.eventCount++;
         }
         
-        // if trip setting enabled and one open tamper interrupt has occurred
-        // keep sending out tamper radio message until tamper closes
-        if (setting.tamperTripEnabled)
+        if (setting.batteryHeartbeatEnabled)
         {
-            if (flag.tamperTripped)
+            if(isBatteryLow())
             {
-                sendRadioPacket(tamper_open);
-                
-                if (!isTamperOpen())
-                {
-                    flag.tamperTripped = false;
-                }
-            }
-        }
-        
-        // FIXME: this will only trigger once as is
-        if (flag.lowBatteryInterrupted)
-        {
-            sendRadioPacket(battery_low);
-            
-            flag.lowBatteryInterrupted = false;
-                
-            ledPulseCount = 1;
-        }
-
-        // send reed switch state if count is incremented by interrupt
-        while (flag.reedCount > 0)
-        {
-            // track count because we might have multiple reed events in quick succession
-            flag.reedCount--;
-            
-            if(flag.reedIsOpen[flag.reedCount])
-            {
-                sendRadioPacket(reed_open);
+                flag.eventHistory[flag.eventCount] = battery_low;
             } else {
-                sendRadioPacket(reed_close);
+                flag.eventHistory[flag.eventCount] = battery_ok;
             }
             
-            // single pulse LED
-            ledPulseCount = 1;
+            flag.eventCount++;
         }
- 
-
-        // difficult to capture tamper press releases, so need to track count to avoid misses
-        while (flag.tamperCount > 0)
+        
+        
+        // send any stored event(s) if count is incremented
+        while (flag.eventCount > 0)
         {
-            //
-            flag.tamperCount--;
+            // this is smarter than using pulseLED() since pulsing would use blocking delays
+            // (in other words, the delays in sending radio packet serve as our pulse "on" time)
+            led_on();
             
-            if(flag.tamperIsOpen[flag.tamperCount])
-            {
-                sendRadioPacket(tamper_open);
-            } else {
-                sendRadioPacket(tamper_close);
-            }
             
-            // single pulse LED
-            ledPulseCount = 1;
+            flag.eventCount--;
             
-
+            sendRadioPacket(flag.eventHistory[flag.eventCount]);
+            
+            // delay before (if) sending next packet so as not to overwhelm receiver
+            delay1ms(RADIO_GUARD_TIME);
+            
+            // effectively just pulsed led
+            led_off();
         }
-        
-        
-        // finally blink LED here after sending out radio packets
-        while (ledPulseCount > 0)
-        {
-            pulseLED();
-            
-            // decrementing (instead of zeroing) allows the potential
-            // to pulse LED multiple times but usually we just pulse once
-            ledPulseCount--;
-        }
-        
-
     }
 }
