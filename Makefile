@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # 
-# Copyright (c) 2022 Vincent DEFERT. All rights reserved.
+# Copyright (c) 2022 Jonathan Armstrong. All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without 
 # modification, are permitted provided that the following conditions 
