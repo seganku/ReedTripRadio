@@ -25,23 +25,19 @@ The board needs fewer than 100 milliamps.
 
 ### Receiver Hardware
 Receiving radio packets requires a receiver.  
-We support both "stock" timings captured from the factory sensor and  "protocol 1" supported by the rc-switch library. 
-You can of course modify constants in the firmware to support any timings desired.  
-Number of missed events or missed packets at various receivers is being evaluated currently.
 
-
-| Hardware | modifications | stock protocol | protocol 1 | missed packets? |
-| ------------- | ------------- | ------------- | ------------- |
-| Sonoff R1  | original  | untested | untested | |
-| Sonoff R2 v1.0  | original  | yes | yes |  |
-| Sonoff R2 v1.0  | RF-Bridge-EFM8BB1  | yes | yes | |
-| Sonoff R2 v1.0 | bypass EFM8BB1  | untested | untested | |
-| Sonoff R2 v2.0 | original  | untested | untested | |
-| Sonoff R2 v2.0  | RF-Bridge-EFM8BB1  | untested | untested | |
-| sonoff R2 v2.0 | bypass  | untested | untested | |
-| sonoff R2 v2.2  | original  | yes | yes | |
-| sonoff R2 v2.2 | bypass  | untested | yes | |
-| SIGNALDuino  | original  | yes | yes | |
+| Hardware | modifications | stock protocol | protocol 1 | reliable packets? |
+| ------------- | ------------- | ------------- | ------------- | ------------- |
+| Sonoff R1  | original  | untested | untested | todo |
+| Sonoff R2 v1.0  | original  | yes | yes | todo |
+| Sonoff R2 v1.0  | RF-Bridge-EFM8BB1  | yes | yes | todo |
+| Sonoff R2 v1.0 | bypass EFM8BB1  | untested | untested | todo |
+| Sonoff R2 v2.0 | original  | untested | untested | todo |
+| Sonoff R2 v2.0  | RF-Bridge-EFM8BB1  | untested | untested | todo |
+| Sonoff R2 v2.0 | bypass  | untested | untested | todo |
+| Sonoff R2 v2.2  | original  | yes | yes | todo |
+| Sonoff R2 v2.2 | bypass  | untested | yes | todo |
+| SIGNALDuino  | original  | yes | yes | todo |
 
 
 ### Receiver Modifications (optional)
