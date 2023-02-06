@@ -85,6 +85,7 @@ ESPHome is also an option (link?).
 | Add battery OK code  | added  | DONE |
 | Support stock transmission protocols  | added  | DONE |
 | Add packet count to upper bits of transmitted rf code    | added  | DONE |
+| Allow inverting switch state (open sends "close" code etc.)  | added  | todo |
 | User configuration/input with tamper switch press(es) | added  | todo |
 | Compare power usage to original firmware  | added  | todo |
 | Adjustable LED blink behavior   | added  | todo |
