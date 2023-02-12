@@ -42,12 +42,6 @@
     #define CHECK_FOR_TAMPER_AT_STARTUP false
 #endif
 
-// use upper bits of code as packet count to help in seeing missing packets
-#if 1
-    #define PACKET_COUNT_WITH_CODE true
-#else
-    #define PACKET_COUNT_WITH_CODE false
-#endif
 
 // keep sending switch state until alarm condition clears
 //
@@ -57,8 +51,24 @@
 #if 1
     #define TAMPERS_ENABLED true
 #else
-
     #define TAMPERS_ENABLED false
+#endif
+
+
+// use upper bits of code as packet count to help in detecting missing packets
+#if 0
+    #define PACKET_COUNT_WITH_CODE true
+#else
+    #define PACKET_COUNT_WITH_CODE false
+#endif
+
+
+// this involves waking up from sleep regularly to track time
+//   so checking battery contributes to draining battery
+#if 0
+    #define BATTERY_TRIP_ENABLED true
+#else
+    #define BATTERY_TRIP_ENABLED false
 #endif
 
 // hardware pin definitions
@@ -120,6 +130,20 @@
 // array size
 #define EVENT_HISTORY_SIZE 16
 
+// about 16 secs per count (assumes wktc set to full value near 0x7fff)
+// we use bitwise-and in check logic instead of modulo divide to save code space
+// about one minute
+//#define TAMPER_SLOT 4
+//#define REED_SLOT   4
+// about ten minutes
+#define TAMPER_SLOT 38
+#define REED_SLOT   38
+// about thirty minutes
+//#define TAMPER_SLOT  113
+//#define REED_SLOT    113
+#define BATTERY_SLOT 113
+// about one hour
+//#define BATTERY_SLOT 225
 
 // unique ID is stored in ram in the same locations on mcu 101/104 parts
 // see makefile - we are limiting ram size so that it is not initialized/written at these addresses
@@ -142,12 +166,12 @@ static const __idata unsigned char *guid1 = (__idata unsigned char*) ID1_ADDR_RA
 // codes used in original firmware are (0x06, 0x07, 0x0a, 0x0e), others were added
 // original codes reported by: https://community.home-assistant.io/t/budget-priced-wife-friendly-wireless-wall-switch-using-433mhz-and-mqtt/88281
 // if sensor is being powered by 3.3V on header pins, this will also show battery low apparently
-static const unsigned char battery_low  = 0x06;
-static const unsigned char tamper_open  = 0x07;
-static const unsigned char tamper_close = 0x08;
-static const unsigned char battery_ok   = 0x09;
-static const unsigned char reed_open    = 0x0a;
-static const unsigned char reed_close   = 0x0e;
+static const unsigned char gBatteryLow  = 0x06;
+static const unsigned char gTamperOpen  = 0x07;
+static const unsigned char gTamperClose = 0x08;
+static const unsigned char gBatteryOk   = 0x09;
+static const unsigned char gReedOpen    = 0x0a;
+static const unsigned char gReedClose   = 0x0e;
 
 
 
@@ -189,15 +213,19 @@ static const unsigned char reed_close   = 0x0e;
 struct Flags {
     volatile bool reedInterrupted;
     volatile bool tamperInterrupted;
+    volatile bool batteryLowInterrupted;
     volatile bool tamperTripped;
     volatile bool reedTripped;
+    volatile bool batteryLowTripped;
     // save switches or battery states for sending
     volatile unsigned char eventHistory[EVENT_HISTORY_SIZE];
     volatile unsigned char eventCount;
     // track packets sent since startup
     volatile unsigned char packetCount;
     // track times woken up so we can track longer time periods
-    unsigned char wakeupCount;
+    unsigned char tamperWakeupCount;
+    unsigned char reedWakeupCount;
+    unsigned char batteryWakeupCount;
 };
 
 // arrays are not initialized, but okay because we only read when count is incremented
@@ -206,9 +234,12 @@ struct Flags flag = {
     .tamperInterrupted     = false,
     .tamperTripped         = false,
     .reedTripped           = false,
+    .batteryLowTripped        = false,
     .eventCount = 0,
     .packetCount = 0,
-    .wakeupCount = 0
+    .tamperWakeupCount  = 0,
+    .reedWakeupCount    = 0,
+    .batteryWakeupCount = 0
 };
 
 
@@ -263,9 +294,13 @@ inline void led_off(void)
 // also of course need to enable global interrupts (EA = 1)
 inline void enable_interrupts(void)
 {
+    // called the interrupt enable register in datasheet (IE)
     // note: default for ext. interrupts 0 and 1 is to interrupt on both falling and rising edges
     // (IT0 = 0, IT1 = 0)
+    // EA = 1, EX1 = 1, EX0 = 1
     IE1 = 0x85;
+    // EX3 = 1 for battery status
+    INT_CLKO = 0x20;
 }
 
 
@@ -400,11 +435,11 @@ void external_isr1(void) __interrupt 2
 
 //-----------------------------------------
 // interrupt and wake up on battery state change
-// because isr3 so far down on the vector table (entry 11) intermediate bytes are wasted (uses 76 bytes for nothing!)
-//void external_isr3(void) __interrupt 11
-//{
-//    flag.lowBatteryInterrupted = true;
-//}
+// because isr3 is so far down on the vector table (entry 11) intermediate bytes are wasted (uses 76 bytes for almost nothing!)
+void external_isr3(void) __interrupt 11
+{
+    flag.batteryLowInterrupted = true;
+}
 
 // sec. 4.1 All port pins default to quasi-bidirectional after reset. Each one has a Schmitt-triggered input for improved input noise rejection.
 //batteryMonitor GPIO_PIN_CONFIG(GPIO_PORT3, GPIO_PIN5, GPIO_HIGH_IMPEDANCE_MODE)
@@ -473,6 +508,11 @@ void main(void)
     // enable everything in one call to save bytes
     enable_interrupts();
     
+    // catch if battery is already low at startup
+    if (isBatteryLow())
+    {
+        flag.batteryLowInterrupted = true;
+    }
 
     // main loop
     while (true)
@@ -481,10 +521,12 @@ void main(void)
 #if TAMPERS_ENABLED
         // only enable wake up timer if alarm wake up required, otherwise clear/disable
         // note: sec. 3.3.1 special function registers address map shows that default state of WKTCx has default value in timer        
-        if (flag.tamperTripped | flag.reedTripped)
+        if (flag.tamperTripped | flag.reedTripped | flag.batteryLowTripped)
         {
             // we do not use this currently
-            flag.wakeupCount++;
+            flag.tamperWakeupCount++;
+            flag.reedWakeupCount++;
+            flag.batteryWakeupCount++;
             
             // set wake up count and enable wake up timer bit
             WKTC = SLEEP_TIME_0;
@@ -495,7 +537,7 @@ void main(void)
 #endif
         
         // check if there are unserviced interrupt(s) prior to sleeping
-        if (!(flag.reedInterrupted | flag.tamperInterrupted))
+        if (!(flag.reedInterrupted | flag.tamperInterrupted | flag.batteryLowInterrupted))
         {
             {
                 // go to sleep
@@ -513,42 +555,78 @@ void main(void)
         // sending stops once the tamper is again closed
         if (flag.tamperTripped)
         {
-            // only alarm for open condition
-            if (isTamperOpen())
-            {            
-                flag.eventHistory[flag.eventCount] = tamper_open;
-                flag.eventCount++;
+            if (flag.tamperWakeupCount > TAMPER_SLOT)
+            {
+                flag.tamperWakeupCount = 0;
+                
+                // only alarm for open condition
+                if (isTamperOpen())
+                {            
+                    flag.eventHistory[flag.eventCount] = gTamperOpen;
+                    flag.eventCount++;
 
-            } else {
-                // otherwise alarm has been cleared, so disable trip
-                flag.tamperTripped = false;
+                } else {
+                    // otherwise alarm has been cleared, so disable trip
+                    flag.tamperTripped = false;
+                }
             }
         }
 
         // similar alarm message but for reed switch
         if (flag.reedTripped)
         {
-            if(isReedOpen())
+            if (flag.reedWakeupCount > REED_SLOT)
             {
-                flag.eventHistory[flag.eventCount] = reed_open;
-                flag.eventCount++;
-            } else {
-                flag.reedTripped = false;
+                flag.reedWakeupCount = 0;
+                
+                if(isReedOpen())
+                {
+                    flag.eventHistory[flag.eventCount] = gReedOpen;
+                    flag.eventCount++;
+                } else {
+                    flag.reedTripped = false;
+                }
             }
         }
 #endif
 
-        // go ahead and check battery state if a human actuated one of the switches
-        if (flag.reedInterrupted | flag.tamperInterrupted)
+        
+#if BATTERY_TRIP_ENABLED
+        if (flag.batteryLowTripped)
         {
-            // go ahead and send battery state
-            if(isBatteryLow())
+            // only rarely send battery state
+            if (flag.batteryWakeupCount > BATTERY_SLOT)
             {
-                flag.eventHistory[flag.eventCount] = battery_low;
-            } else {
-                flag.eventHistory[flag.eventCount] = battery_ok;
+                flag.batteryWakeupCount = 0;
+                
+                // go ahead and send battery state
+                if(isBatteryLow())
+                {
+                    flag.eventHistory[flag.eventCount] = gBatteryLow;
+                } else {
+                    // this logic will probably never happen
+                    //   and can assume battery is ok if no low code sent
+                    //   but go ahead and send it anyway
+                    flag.eventHistory[flag.eventCount] = gBatteryOk;
+                    flag.batteryLowTripped = false;
+                }
+                
+                flag.eventCount++;
             }
-            
+        }
+#endif
+
+
+        // this will only send once as battery discharges unless battery voltage bounces around
+        if (flag.batteryLowInterrupted)
+        {
+            // FIXME: debounce
+            delay10us(DEBOUNCE_TIME_10US);
+            flag.batteryLowInterrupted = false;
+            flag.batteryLowTripped = true;
+
+            // go ahead and send battery state, we know it is low due to interrupt
+            flag.eventHistory[flag.eventCount] = gBatteryLow;            
             flag.eventCount++;
         }
         
@@ -574,9 +652,9 @@ void main(void)
             // note: we really do not have code space for checking array overflows
             if (state)
             {
-                flag.eventHistory[index] = reed_open;
+                flag.eventHistory[index] = gReedOpen;
             } else {
-                flag.eventHistory[index] = reed_close;
+                flag.eventHistory[index] = gReedClose;
             }
             
             // track count because we might have multiple events in quick succession
@@ -589,6 +667,7 @@ void main(void)
             {
                 // flag as tripped for alarm sending
                 flag.reedTripped = true;
+                flag.reedWakeupCount = 0;
             }
         }
 
@@ -608,9 +687,9 @@ void main(void)
             
             if (state)
             {
-                flag.eventHistory[index] = tamper_open;
+                flag.eventHistory[index] = gTamperOpen;
             } else {
-                flag.eventHistory[index] = tamper_close;
+                flag.eventHistory[index] = gTamperClose;
             }
             
             flag.eventCount++;
@@ -621,6 +700,7 @@ void main(void)
             {
                 // flag as tripped for sending elsewhere
                 flag.tamperTripped = true;
+                flag.tamperWakeupCount = 0;
             }
         }
         

@@ -78,10 +78,9 @@ ESPHome is also an option (link?).
 | Manage power modes  | original  | DONE |
 | Support inverted protocols  | added  | DONE |
 | Ability to specify timings for transmission protocol (e.g. rc-switch)  | added  | DONE |
-| "Heart beat" mode for periodic transmission   | added  | DONE |
 | Add tamper closed key  | added  | DONE |
-| Add tamper "trip" mode   | added  | DONE |
-| Interrupt and heart beat mode for low battery   | original  | DONE |
+| Add reed and tamper "trip" alarm mode   | added  | DONE |
+| Send battery status   | original  | DONE |
 | Add battery OK code  | added  | DONE |
 | Support stock transmission protocols  | added  | DONE |
 | Add packet count to upper bits of transmitted rf code    | added  | DONE |
@@ -89,7 +88,7 @@ ESPHome is also an option (link?).
 | User configuration/input with tamper switch press(es) | added  | todo |
 | Compare power usage to original firmware  | added  | todo |
 | Adjustable LED blink behavior   | added  | todo |
-| Adjustable heart beat time period  | added  | todo |
+| Adjustable alarm period  | added  | todo |
 | Store settings in EEPROM  | added  | todo |
 
 
