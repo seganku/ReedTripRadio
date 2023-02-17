@@ -9,7 +9,7 @@ STC MCUs do not allow read/verify of written firmware.
 Therefore an open source alternative is needed to confirm program behavior.  
 Also for this reason original firmware can not be reflashed once overwritten.  
 
-This work is made possible by Vincent Defert's hardware abstraction layer for STC 8051 MCUs:
+This work is made possible by Vincent Defert's hardware abstraction layer for STC 8051 MCUs:  
 https://github.com/area-8051/uni-STC
 
 ### Programming Interface
@@ -43,13 +43,13 @@ Receiving radio packets requires a receiver.
 ### Receiver Modifications (optional)
 
 Generic controller with 433 MHz receiver:  
-https://github.com/sui77/rc-switch
+https://github.com/sui77/rc-switch  
 Fork that appears more recently updated:  
 https://github.com/1technophile/rc-switch
 
 
 For Sonoff RF Bridge R1/R2 v1.0 and v2.0 modifications are available but are not explicitly required if stock timings are used:  
-https://github.com/xoseperez/espurna/wiki/Hardware-Itead-Sonoff-RF-Bridge
+https://github.com/xoseperez/espurna/wiki/Hardware-Itead-Sonoff-RF-Bridge  
 https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/#rf-firmware-upgrade
 
 
