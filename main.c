@@ -94,6 +94,7 @@
 // @mmotley999 reported up to eight retransmissions are required
 // @bismosa reports stock firmware repeats transmission twenty times!
 // sonoff bridge r2 seems to to similarly require many repeats
+//#define REPEAT_TRANSMISSIONS 1
 //#define REPEAT_TRANSMISSIONS 4
 //#define REPEAT_TRANSMISSIONS 8
 #define REPEAT_TRANSMISSIONS 20
@@ -379,7 +380,7 @@ void send(const unsigned char byte)
     }
 }
 
-void sendRadioPacket(const unsigned char rfcode)
+void send_radio_packet(const unsigned char rfcode)
 {
     unsigned char index;
     unsigned char byteToSend;
@@ -714,7 +715,7 @@ void main(void)
             led_on();
             
             // send radio packet consisting of start pulse and 24-bits of data
-            sendRadioPacket(flag.eventHistory[index]);
+            send_radio_packet(flag.eventHistory[index]);
             
             // delay before sending next packet so as not to overwhelm receiver
             delay1ms(RADIO_GUARD_TIME);
