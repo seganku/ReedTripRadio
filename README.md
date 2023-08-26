@@ -56,7 +56,10 @@ https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/#rf-firmware-upgrade
 RF-Bridge-EFM8BB1 is not supported on Sonoff R2 v2.2 hardware:  
 https://github.com/Portisch/RF-Bridge-EFM8BB1/issues/217
 
-However a similar hardware modification for R2 v2.2 which bypasses the radio chip so that Tasmota directly decodes is available:  
+However, an effort is underway to provide alternative firmware for the radio decode microcontroller on the Sonoff R2 v2.2 hardware:  
+https://github.com/mightymos/RF-Bridge-OB38S003
+
+A hardware modification for R2 v2.2 which bypasses the radio chip so that Tasmota directly decodes is available:  
 https://community.home-assistant.io/t/new-sonoff-rf-bridge-board-need-flashing-help/344326/17
 
 ### Home automation support (optional)
@@ -67,7 +70,7 @@ Also ESPurna can learn/remember unique sensor codes.
 
 [Tasmota](https://tasmota.github.io/docs/devices/Sonoff-RF-Bridge-433/ "Tasmota") firmware can also be flashed.  
 
-ESPHome is also an option (link?).
+ESPHome is also an option (https://github.com/mightymos/ReedTripRadio/issues/11).
 
 ### Features
 
